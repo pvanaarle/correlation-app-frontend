@@ -71,32 +71,6 @@ function formatDateTime(iso: string): string {
     });
 }
 
-// Correlatie helpers
-
-// 1. Series alignen op datetime: maak paren (x,y)
-function alignSeriesForCorrelation(
-    a: PricePointDto[],
-    b: PricePointDto[]
-): [number[], number[]] {
-    const mapB = new Map<string, number>();
-    b.forEach(p => {
-        mapB.set(p.datetime, p.close);
-    });
-
-    const xs: number[] = [];
-    const ys: number[] = [];
-
-    a.forEach(p => {
-        const other = mapB.get(p.datetime);
-        if (other !== undefined) {
-            xs.push(p.close);
-            ys.push(other);
-        }
-    });
-
-    return [xs, ys];
-}
-
 // 2. Pearson-correlatie berekenen
 function pearsonCorrelation(xs: number[], ys: number[]): number | null {
     const n = xs.length;
@@ -309,22 +283,34 @@ const Dashboard: React.FC = () => {
             // --- Correlatie berekenen als er een tweede asset is ---
             if (selectedAsset2 && data1.length > 0 && data2.length > 0) {
                 const merged = mergeAndFill(data1, data2);
-                const xs = merged.map(row => row.asset1 ?? 0);
-                const ys = merged.map(row => row.asset2 ?? 0);
 
-                const corr = pearsonCorrelation(xs, ys);
+                // Alleen punten waar beide assets een waarde hebben
+                const validRows = merged.filter(
+                    (row) => row.asset1 !== null && row.asset2 !== null
+                );
 
+                if (validRows.length > 1) {
+                    const xs = validRows.map((row) => row.asset1 as number);
+                    const ys = validRows.map((row) => row.asset2 as number);
 
-                setCorrelation(corr);
-                setCorrelationAssets({
-                    asset1: selectedAsset1,
-                    asset2: selectedAsset2,
-                });
+                    const corr = pearsonCorrelation(xs, ys);
+
+                    setCorrelation(corr);
+                    setCorrelationAssets({
+                        asset1: selectedAsset1,
+                        asset2: selectedAsset2,
+                    });
+                } else {
+                    // te weinig overlappende data om iets zinnigs te zeggen
+                    setCorrelation(null);
+                    setCorrelationAssets(null);
+                }
             } else {
                 // geen tweede asset of geen data → ook geen resultaat tonen
                 setCorrelation(null);
                 setCorrelationAssets(null);
             }
+
 
 
         } catch (e) {
