@@ -1,10 +1,16 @@
 // src/pages/Dashboard.tsx
 
-import React, {useEffect, useState} from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {AssetDto, PricePointDto} from '../types/dto';
 import {fetchAssets, fetchPrices} from '../services/api';
 import PriceChart from '../components/PriceChart';
+import CombinedPriceChart from '../components/CombinedPriceChart';
 
+interface MergedRow {
+    datetime: string;
+    asset1: number | null;
+    asset2: number | null;
+}
 
 type TimeframeKey = '30d' | '90d' | '365d';
 
@@ -24,6 +30,35 @@ function filterByTimeframe(points: PricePointDto[], timeframe: TimeframeKey): Pr
 
     return points.slice(0, max); // lijst staat al newest → oldest
 }
+
+// bij crypto/aandeel-combi kwam geen correlatie. Komt door timestamps. Vandaar deze aanpassing:
+function mergeAndFill(data1: PricePointDto[], data2: PricePointDto[]): MergedRow[] {
+    const map1 = new Map(data1.map(p => [p.datetime, p.close]));
+    const map2 = new Map(data2.map(p => [p.datetime, p.close]));
+
+    const datetimes = Array.from(
+        new Set([
+            ...data1.map(p => p.datetime),
+            ...data2.map(p => p.datetime),
+        ])
+    ).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+    let last1: number | null = null;
+    let last2: number | null = null;
+
+    return datetimes.map((dt): MergedRow => {
+        if (map1.has(dt)) last1 = map1.get(dt)!;
+        if (map2.has(dt)) last2 = map2.get(dt)!;
+
+        return {
+            datetime: dt,
+            asset1: last1,
+            asset2: last2,
+        };
+    });
+}
+
+
 
 function formatDateTime(iso: string): string {
     return new Date(iso).toLocaleString('nl-NL', {
@@ -155,6 +190,53 @@ const Dashboard: React.FC = () => {
     const [loadingPrices, setLoadingPrices] = useState(false);
     const [error, setError] = useState<string>('');
 
+    const resetResults = () => { // Helper voor resetten (ivm 'trage' dropdown)
+        setPrices1([]);
+        setPrices2([]);
+        setChartAssets(null);
+        setCorrelation(null);
+        setCorrelationAssets(null);
+        setError('');
+    };
+
+    const priceRows1 = useMemo( // Dit blok maakt de dropdowns sneller met useMemo
+        () =>
+            prices1.map((p, index) => (
+                <tr
+                    key={index}
+                    className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                >
+                    <td className="px-4 py-1.5">
+                        {formatDateTime(p.datetime)}
+                    </td>
+                    <td className="px-4 py-1.5 text-right tabular-nums">
+                        {p.close.toFixed(2)}
+                    </td>
+                </tr>
+            )),
+        [prices1]
+    );
+
+    const priceRows2 = useMemo(
+        () =>
+            prices2.map((p, index) => (
+                <tr
+                    key={index}
+                    className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                >
+                    <td className="px-4 py-1.5">
+                        {formatDateTime(p.datetime)}
+                    </td>
+                    <td className="px-4 py-1.5 text-right tabular-nums">
+                        {p.close.toFixed(2)}
+                    </td>
+                </tr>
+            )),
+        [prices2]
+    );
+
+
+
     // --- Assets laden bij start ---
     useEffect(() => {
         const load = async () => {
@@ -186,16 +268,23 @@ const Dashboard: React.FC = () => {
             return;
         }
 
+        // 🔹 NIEUW: combinatie 365d + 1h blokkeren
+        if (timeframe === '365d' && interval === '1h') {
+            // Oude resultaten leegmaken zodat alleen de fout zichtbaar is
+            resetResults();
+            setError(
+                '365 dagen met interval 1 uur levert teveel (5000+) records op. ' +
+                'Kies een kleiner timeframe (90/30 dgn) of een groter interval (4u/1d).'
+            );
+            return;
+        }
+
         setError('');
         setLoadingPrices(true);
 
         // oud resultaat weggooien bij nieuwe aanvraag
-        setCorrelation(null);
-        setCorrelationAssets(null);
+        resetResults();
 
-        setPrices1([]);
-        setPrices2([]);
-        setChartAssets(null);
 
 
         try {
@@ -219,8 +308,12 @@ const Dashboard: React.FC = () => {
 
             // --- Correlatie berekenen als er een tweede asset is ---
             if (selectedAsset2 && data1.length > 0 && data2.length > 0) {
-                const [xs, ys] = alignSeriesForCorrelation(data1, data2);
+                const merged = mergeAndFill(data1, data2);
+                const xs = merged.map(row => row.asset1 ?? 0);
+                const ys = merged.map(row => row.asset2 ?? 0);
+
                 const corr = pearsonCorrelation(xs, ys);
+
 
                 setCorrelation(corr);
                 setCorrelationAssets({
@@ -254,11 +347,10 @@ const Dashboard: React.FC = () => {
         <div className="min-h-screen flex items-center justify-center bg-slate-900 p-5">
             <div className="bg-white rounded-2xl p-10 shadow-2xl max-w-5xl w-full border border-gray-100">
                 <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-3 text-center">
-                    Market Correlation Dashboard – fase 2
+                    Market Correlation Dashboard
                 </h1>
                 <p className="text-center text-gray-500 mb-8">
-                    Kies twee assets en een timeframe. We halen de prijsreeksen op, zodat
-                    je kunt checken of de data logisch is.
+                    Kies twee assets, een timeframe en een interval. Klik op "Laad prijsdata" om de correlatie te berekenen.
                 </p>
 
                 {/* Formulier */}
@@ -266,7 +358,7 @@ const Dashboard: React.FC = () => {
                     {/* Asset 1 */}
                     <div className="flex flex-col gap-2">
                         <label className="text-sm font-medium text-gray-700">
-                            Asset 1 (verplicht)
+                            Asset 1
                         </label>
                         <select
                             className="px-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-500"
@@ -286,7 +378,7 @@ const Dashboard: React.FC = () => {
                     {/* Asset 2 */}
                     <div className="flex flex-col gap-2">
                         <label className="text-sm font-medium text-gray-700">
-                            Asset 2 (optioneel)
+                            Asset 2
                         </label>
                         <select
                             className="px-4 py-2.5 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-500"
@@ -294,7 +386,7 @@ const Dashboard: React.FC = () => {
                             onChange={(e) => setSelectedAsset2(e.target.value)}
                             disabled={loadingAssets}
                         >
-                            <option value="">Geen tweede asset</option>
+                            <option value="">Kies tweede asset...</option>
                             {assets.map((asset) => (
                                 <option key={asset.id} value={asset.name}>
                                     {asset.name} ({asset.symbol})
@@ -333,7 +425,10 @@ const Dashboard: React.FC = () => {
                             value={interval}
                             onChange={(e) => setInterval(e.target.value)}
                         >
-                            <option value="1h">1 uur</option>
+                            {/* disable 1u optie bij keuze van 365 dagen ivm 8000+ records */}
+                            <option value="1h" disabled={timeframe === '365d'}>
+                                1 uur
+                            </option>
                             <option value="4h">4 uur</option>
                             <option value="1day">1 dag</option>
                         </select>
@@ -395,22 +490,26 @@ const Dashboard: React.FC = () => {
                     </div>
                 )}
 
-                {prices1.length > 0 && chartAssets && (
-                    <PriceChart
-                        data={prices1}
-                        color="#4F46E5"
-                        title={`${chartAssets.asset1} (${interval})`}
-                    />
+                {chartAssets && prices1.length > 0 && (
+                    chartAssets.asset2 && prices2.length > 0 ? (
+                        // === Twee assets → gecombineerde grafiek ===
+                        <CombinedPriceChart
+                            data1={prices1}
+                            data2={prices2}
+                            asset1Label={chartAssets.asset1}
+                            asset2Label={chartAssets.asset2}
+                            interval={interval}
+                        />
+                    ) : (
+                        // === Eén asset → oude enkelvoudige grafiek ===
+                        <PriceChart
+                            data={prices1}
+                            color="#4F46E5"
+                            title={`${chartAssets.asset1} (${interval})`}
+                        />
+                    )
                 )}
 
-
-                {chartAssets?.asset2 && prices2.length > 0 && (
-                    <PriceChart
-                        data={prices2}
-                        color="#EF4444"
-                        title={`${chartAssets.asset2} (${interval})`}
-                    />
-                )}
 
 
 
@@ -435,21 +534,8 @@ const Dashboard: React.FC = () => {
                                         <th className="px-4 py-2 text-right">Close</th>
                                     </tr>
                                     </thead>
-                                    <tbody>
-                                    {prices1.map((p, index) => (
-                                        <tr
-                                            key={index}
-                                            className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                                        >
-                                            <td className="px-4 py-1.5">
-                                                {formatDateTime(p.datetime)}
-                                            </td>
-                                            <td className="px-4 py-1.5 text-right tabular-nums">
-                                                {p.close.toFixed(2)}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    </tbody>
+                                    <tbody>{priceRows1}</tbody>
+
                                 </table>
                             )}
                         </div>
@@ -479,21 +565,8 @@ const Dashboard: React.FC = () => {
                                             <th className="px-4 py-2 text-right">Close</th>
                                         </tr>
                                         </thead>
-                                        <tbody>
-                                        {prices2.map((p, index) => (
-                                            <tr
-                                                key={index}
-                                                className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                                            >
-                                                <td className="px-4 py-1.5">
-                                                    {formatDateTime(p.datetime)}
-                                                </td>
-                                                <td className="px-4 py-1.5 text-right tabular-nums">
-                                                    {p.close.toFixed(2)}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        </tbody>
+                                        <tbody>{priceRows2}</tbody>
+
                                     </table>
                                 )
                             )}

@@ -1,7 +1,7 @@
-import { FormEvent, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "../lib/SupabaseClients";
-import "./SignupPage.css";
+import { FormEvent, useState } from "react"; // P: dit vertelt Typescript wat voor functie handleSubmit krijgt.
+import { useNavigate, Link } from "react-router-dom"; //P:  useNavigate --> "ga nu naar login"
+import { supabase } from "../lib/SupabaseClients"; //
+import "./SignupPage.css"; // Styling voor de pagina
 
 
 export function SignupPage() {
