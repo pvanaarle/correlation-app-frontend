@@ -5,6 +5,9 @@ import {AssetDto, PricePointDto} from '../types/dto';
 import {fetchAssets, fetchPrices} from '../services/api';
 import PriceChart from '../components/PriceChart';
 import CombinedPriceChart from '../components/CombinedPriceChart';
+import { useAuth } from '../lib/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
 
 interface MergedRow {
     datetime: string;
@@ -19,17 +22,6 @@ const TIMEFRAMES: Record<TimeframeKey, { label: string; hours: number }> = {
     '90d': {label: 'Laatste 90 dagen', hours: 24 * 90},
     '365d': {label: 'Laatste 365 dagen', hours: 24 * 365},
 };
-
-function filterByTimeframe(points: PricePointDto[], timeframe: TimeframeKey): PricePointDto[] {
-    const max = TIMEFRAMES[timeframe].hours;
-
-    // We krijgen 1 datapunt per uur. Als we minder data hebben dan "max", geven we gewoon alles.
-    if (points.length <= max) {
-        return points;
-    }
-
-    return points.slice(0, max); // lijst staat al newest → oldest
-}
 
 // bij crypto/aandeel-combi kwam geen correlatie. Komt door timestamps. Vandaar deze aanpassing:
 function mergeAndFill(data1: PricePointDto[], data2: PricePointDto[]): MergedRow[] {
@@ -138,6 +130,10 @@ function describeCorrelation(correlation: number | null): CorrelationDescription
 
 const Dashboard: React.FC = () => {
     const [assets, setAssets] = useState<AssetDto[]>([]);
+    const sortedAssets = [...assets].sort((a, b) =>
+        a.name.localeCompare(b.name)
+    );
+
     const [loadingAssets, setLoadingAssets] = useState(false);
 
     const [selectedAsset1, setSelectedAsset1] = useState<string>('');
@@ -159,7 +155,6 @@ const Dashboard: React.FC = () => {
         asset1: string;
         asset2: string;
     } | null>(null);
-
 
     const [loadingPrices, setLoadingPrices] = useState(false);
     const [error, setError] = useState<string>('');
@@ -208,6 +203,15 @@ const Dashboard: React.FC = () => {
             )),
         [prices2]
     );
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
+
+    const handleLogout = async () => {
+        await logout();
+        navigate("/login");
+    };
+
+
 
 
 
@@ -332,9 +336,36 @@ const Dashboard: React.FC = () => {
     return (
         <div className="min-h-screen flex items-center justify-center bg-slate-900 p-5">
             <div className="bg-white rounded-2xl p-10 shadow-2xl max-w-5xl w-full border border-gray-100">
-                <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-3 text-center">
-                    Market Correlation Dashboard
-                </h1>
+
+                {/* ✅ uitlog-knop rechtsboven */}
+                {/* Titel + logout in één rij */}
+                <div className="flex items-center justify-between mb-6">
+                    {/* Links lege spacer */}
+                    <div className="w-24"></div>
+
+                    {/* Titel */}
+                    <h1 className="text-3xl md:text-4xl font-bold text-gray-800 text-center">
+                        Market Correlation Dashboard
+                    </h1>
+
+                    {/* Rechterkant: user + logout */}
+                    <div className="flex items-center gap-3 w-24 justify-end">
+                        {user && (
+                            <span className="text-xs text-gray-500">
+                {user.email}
+            </span>
+                        )}
+
+                        <button
+                            onClick={handleLogout}
+                            className="px-3 py-2 text-xs font-medium text-white bg-red-600 rounded-xl hover:bg-red-800"
+                        >
+                            Uitloggen
+                        </button>
+                    </div>
+                </div>
+
+
                 <p className="text-center text-gray-500 mb-8">
                     Kies twee assets, een timeframe en een interval. Klik op "Laad prijsdata" om de correlatie te berekenen.
                 </p>
@@ -353,7 +384,7 @@ const Dashboard: React.FC = () => {
                             disabled={loadingAssets}
                         >
                             <option value="">Kies een asset...</option>
-                            {assets.map((asset) => (
+                            {sortedAssets.map((asset) => (
                                 <option key={asset.id} value={asset.name}>
                                     {asset.name} ({asset.symbol})
                                 </option>
@@ -373,7 +404,7 @@ const Dashboard: React.FC = () => {
                             disabled={loadingAssets}
                         >
                             <option value="">Kies tweede asset...</option>
-                            {assets.map((asset) => (
+                            {sortedAssets.map((asset) => (
                                 <option key={asset.id} value={asset.name}>
                                     {asset.name} ({asset.symbol})
                                 </option>
@@ -425,7 +456,7 @@ const Dashboard: React.FC = () => {
                 <div className="flex justify-end mb-4">
                     <button
                         onClick={handleLoadPrices}
-                        className="px-6 py-3 text-sm font-semibold text-white bg-indigo-600 rounded-xl shadow-sm hover:bg-indigo-700 hover:shadow-md active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+                        className="px-6 py-3 text-sm font-semibold text-white bg-indigo-600 rounded-xl shadow-sm hover:bg-indigo-800 hover:shadow-md active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
                         disabled={loadingAssets || loadingPrices}
                     >
                         {loadingPrices ? 'Bezig met laden...' : 'Laad prijsdata'}
