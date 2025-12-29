@@ -2,13 +2,15 @@
 
 import { HelloWorldDto, AssetDto, PricePointDto } from '../types/dto';
 
-const API_BASE_URL = 'http://localhost:8080/api';
-const apiBaseUrl = process.env.REACT_APP_API_BASE_URL as string;
+const apiBaseUrl =
+    (process.env.REACT_APP_API_BASE_URL ?? "http://localhost:8080/api")
+        .replace(/\/+$/, "");
+
 
 // ---------- oude demo-call, mag gewoon blijven ----------
 
 export async function sendHelloRequest(dto: HelloWorldDto): Promise<string> {
-    const response = await fetch(apiBaseUrl + `/hello`, {
+    const response = await fetch(`${apiBaseUrl}/hello`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -27,7 +29,8 @@ export async function sendHelloRequest(dto: HelloWorldDto): Promise<string> {
 // ---------- NIEUW: alle assets ophalen ----------
 
 export async function fetchAssets(): Promise<AssetDto[]> {
-    const response = await fetch(apiBaseUrl + `/assets`);
+    const response = await fetch(`${apiBaseUrl}/assets`);
+
 
     if (!response.ok) {
         throw new Error(`Failed to load assets (status ${response.status})`);
@@ -47,9 +50,7 @@ export async function fetchPrices(
 
     const encoded = encodeURIComponent(symbolOrName);
 
-    const url =
-        apiBaseUrl + `/assets/prices/${encoded}` +
-        `?timeframe=${timeframe}&interval=${interval}`;
+    const url = `${apiBaseUrl}/assets/prices/${encoded}?timeframe=${timeframe}&interval=${interval}`;
 
     const response = await fetch(url);
 
